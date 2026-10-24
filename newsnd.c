@@ -17,6 +17,7 @@
 
 samp *buffer;
 Uint4 firsts,last,size;           /* data available to output device */
+Uint4 snd_os=1;                   /* emulator samples per output sample */
 
 int rate;
 Uint4 t0rate,t2rate,t2new,t0v,t2v;
@@ -50,11 +51,18 @@ samp getsample(void);
 void soundinitglob(int port,int irq,int dma,Uint4 bufsize,Uint4 samprate)
 {
   int i;
+
+  if (samprate==0)          /* Avoid a divide by zero on a bad setting */
+    samprate=22050;
+
+  /* The output device may run the emulator faster than it plays the samples
+     (snd_os samples per output sample) to avoid aliasing. It sets snd_os in
+     setsounddevice(); devices that do not oversample leave it at 1. */
   setsounddevice(port,irq,dma,samprate,bufsize);
 #ifndef _WINDOWS
   buffer=malloc((bufsize<<1)*sizeof(samp));
 #endif
-  rate=(int)(0x1234ddul/(Uint5)samprate);
+  rate=(int)(0x1234ddul/((Uint5)samprate*snd_os));
   firsts=0;
   last=1;
   size=bufsize<<1;

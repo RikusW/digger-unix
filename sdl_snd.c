@@ -98,7 +98,7 @@ static void biquad_highpass1(biquad *f,double freq,double rate)
 	biquad_reset(f);
 }
 
-static void speaker_filter_init(Uint4 samprate)
+static void speaker_filter_init(Uint5 samprate)
 {
 	double rate=(double)samprate;
 	double lp=SPEAKER_LP_HZ;
@@ -112,9 +112,9 @@ static void speaker_filter_init(Uint4 samprate)
 	speaker_filter_ready=TRUE;
 }
 
-static samp speaker_filter(samp s)
+static double speaker_filter(samp s)
 {
-	double x,y;
+	double x;
 
 	/* Turn the 0/255 speaker levels into a bipolar signal. The high pass
 	   then removes the DC that an AC coupled speaker would not reproduce,
@@ -122,12 +122,7 @@ static samp speaker_filter(samp s)
 	x=((double)s - 127.5) / 127.5;
 	x=biquad_run(&hp_filter,x);
 	x=biquad_run(&lp_filter,x) * SPEAKER_GAIN;
-	y=127.5 + x * 127.5;
-	if (y<0.0)
-		y=0.0;
-	if (y>255.0)
-		y=255.0;
-	return((samp)y);
+	return(127.5 + x * 127.5);
 }
 
 bool initsounddevice(void)
@@ -157,9 +152,16 @@ bool setsounddevice(int base, int irq, int dma, Uint4 samprate, Uint4 bufsize)
 	if (result == FALSE)
 		fprintf(stderr, "Couldn't open audio: %s\n", SDL_GetError());
 	else {
+		/* The music is synthesised with pulses that can be shorter than one
+		   output sample. Sampling those directly at a low rate folds their
+		   harmonics back into the audible band, which is heard as distortion.
+		   Run the emulator at a minimum of 44.1kHz and decimate here. */
+		snd_os = 1;
+		while ((Uint5)samprate*snd_os < 44100ul && snd_os < 8)
+			snd_os++;
 		buf = malloc(bufsize);
 		bsize = bufsize;
-		speaker_filter_init(samprate);
+		speaker_filter_init((Uint5)samprate*snd_os);
 		wave_device_available = TRUE;
 	}
 
@@ -173,14 +175,25 @@ bool setsounddevice(int base, int irq, int dma, Uint4 samprate, Uint4 bufsize)
 void fill_audio(void *udata, Uint8 *stream, int len)
 {
 	int i;
+	Uint4 j,os;
 
 	if (len > bsize)
 		len = bsize;
+	os = snd_os;
+	if (os<1)
+		os = 1;
 	for(i = 0; i<len; i++) {
-		samp s = getsample();
-		if (speaker_filter_ready)
-			s = speaker_filter(s);
-		buf[i] = s;
+		double acc = 0.0;
+		for(j = 0; j<os; j++) {
+			samp s = getsample();
+			acc += speaker_filter_ready ? speaker_filter(s) : (double)s;
+		}
+		acc /= (double)os;
+		if (acc<0.0)
+			acc = 0.0;
+		if (acc>255.0)
+			acc = 255.0;
+		buf[i] = (samp)(acc + 0.5);
 	}
 
 	SDL_MixAudio(stream, buf, len, SDL_MIX_MAXVOLUME);

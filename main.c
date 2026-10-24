@@ -711,8 +711,19 @@ void parsecmd(int argc,char *argv[])
         else
           redefkeyb(FALSE);
       if (word[1]=='A' || word[1]=='a') {
-        sscanf(word+i,"%u,%x,%u,%u,%u,%u",&sound_device,&sound_port,&sound_irq,
-               &sound_dma,&sound_rate,&sound_length);
+        unsigned dev,port,irq,dma,rate,len;
+        /* Uint4 is only 16 bits, so parse into real unsigned ints.  %u writes
+           4 bytes; using the Uint4 globals directly overwrites the variables
+           next to them (the result depended on the linker's layout). */
+        dev=sound_device; port=sound_port; irq=sound_irq; dma=sound_dma;
+        rate=sound_rate; len=sound_length;
+        sscanf(word+i,"%u,%x,%u,%u,%u,%u",&dev,&port,&irq,&dma,&rate,&len);
+        sound_device=dev;
+        sound_port=port;
+        sound_irq=irq;
+        sound_dma=dma;
+        sound_rate=rate;
+        sound_length=len;
         killsound();
         volume=1;
         setupsound=s1setupsound;

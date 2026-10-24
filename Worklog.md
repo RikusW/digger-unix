@@ -112,3 +112,78 @@ check Agents.md and update the commit
 ---
 
 *This commit was amended after the exchange above to include this worklog, as required by `Agents.md`. `da079ad` is the pre-amend hash mentioned in the reply above.*
+
+## Fix music aliasing by oversampling the speaker emulation
+
+### User
+
+The game effects sound much like the original but the music and end of level tune still sounds a bit distorted
+
+### Assistant
+
+The music path uses extremely narrow PWM pulses (often under one output sample). That makes aliasing a prime suspect — unlike the effects' square waves, a narrow pulse has near-flat energy right up to Nyquist. Let me test the same music at 44.1 kHz to see if the inter-harmonic noise disappears.
+
+### Assistant
+
+The PSD comparison confirms it: at 22.05 kHz the native capture has ~5–7 dB more energy above 3 kHz than the same music emulated at 44.1 kHz — that's aliasing from the narrow PWM pulses folding back into the audible band. Let me check your actual config before deciding how to fix it.
+
+### Assistant
+
+The PSD difference is clear: 22.05 kHz has +5–7 dB of high-frequency hash versus the 44.1 kHz reference — aliasing from the sub-sample PWM pulses. Effects use square waves (1/n harmonics) so they're much less affected, which matches exactly what you hear. The fix is to oversample the emulation internally and decimate, so it works even if you launch with `/A:...,22050,...`.
+
+### Assistant
+
+The oversampled emulation now matches the 44.1 kHz reference within 0.6 dB across all bands, versus +3 to +7 dB of aliasing before. Let me smoke-test the game with both `/A` rates and rebuild cleanly.
+
+### Assistant
+
+The `/A` run now crashes with SIGFPE. Let me isolate whether it's the new code or the pre-existing `/A` parsing.
+
+### Assistant
+
+The SIGFPE exposed a pre-existing bug: `/A` parses with `%u` into 16-bit `Uint4` globals, which only worked when the linker placed them in ascending address order. On this build they're descending, so `samprate` ends up 0. Since you're likely launching with `/A`, let me fix that too.
+
+### Assistant
+
+The fix is verified. Let me review the complete diff and do a final clean build/test.
+
+### Assistant
+
+Diagnosis confirmed, and it wasn't the filter itself.
+
+## Root cause
+
+The music uses the PWM/pulse-width path, and its pulses are often **shorter than one output sample**. A narrow pulse has near-flat harmonic energy right up to Nyquist, unlike the effects' square waves (whose harmonics fall off as 1/n). At 22.05 kHz those harmonics fold back into the audible band as noise.
+
+I measured the same music driven by the real engine at 22.05 kHz vs 44.1 kHz (the latter is effectively alias-free). Energy above the 44.1 kHz reference:
+
+| band | 22.05 kHz (before) | after fix |
+|---|---|---|
+| 3–4 kHz | +3.4 dB | −0.25 dB |
+| 4–5 kHz | +5.2 dB | −0.34 dB |
+| 5–6 kHz | +6.6 dB | −0.37 dB |
+| 6–8 kHz | +7.2 dB | −0.42 dB |
+| 8–10 kHz | +7.1 dB | −0.63 dB |
+
+That's the distortion you were hearing — effects were mostly below it, music wasn't.
+
+## Fix
+
+- `newsnd.c` / `device.h`: added `snd_os`, the number of emulator samples per output sample. The emulator now always runs at **at least 44.1 kHz** internally (`snd_os` = 2 at 22.05 kHz output, 1 at 44.1 kHz, more at lower rates), so aliasing folds from a much quieter part of the spectrum.
+- `sdl_snd.c`: `fill_audio()` generates `snd_os` samples per output sample through the speaker filter, averages them (decimation), then writes one output sample.
+- `main.c`: fixed a pre-existing `/A` crash. It parsed with `%u` straight into 16-bit `Uint4` globals; on this linker layout that zeroed `sound_rate` and caused a divide-by-zero. It now parses into real `unsigned` temps. So `./digger /A:1,220,7,1,22050,512` works again.
+- `newsnd.c`: guards against `samprate == 0` instead of dividing by zero.
+
+## Verification
+
+- Clean build, no new warnings.
+- Music PSD now matches the 44.1 kHz reference within 0.6 dB across 300 Hz–10 kHz.
+- Effect pitch and level are unchanged at 22.05 kHz vs 44.1 kHz (tested with the emerald sound: 690 Hz peak both ways).
+- No clipping in music or the end-of-level tune (`min/max` 35/254, zero samples at 0 or 255).
+- Headless runs succeed at 8000, 22050, 33000, and 44100 Hz, plus the INI path.
+
+The changes are in the working tree but **not committed**. If it sounds right now, say the word and I'll add this exchange to `Worklog.md` and commit (per `Agents.md`).
+
+### User
+
+commit it
