@@ -18,14 +18,14 @@ endif
 ifeq ($(ARCH),"FREEBSD")
 OBJS	+= fbsd_sup.o	# strup()
 CFLAGS	+= -DFREEBSD `sdl-config --cflags`
-LIBS	+= `sdl-config --libs` -lz
+LIBS	+= `sdl-config --libs` -lz -lm
 ESUFFIX	=
 endif
 
 ifeq ($(ARCH),"LINUX")
 OBJS	+= fbsd_sup.o	# strup()
 CFLAGS	+= -DLINUX `sdl-config --cflags`
-LIBS	+= `sdl-config --libs` -lz
+LIBS	+= `sdl-config --libs` -lz -lm
 ESUFFIX	=
 endif
 

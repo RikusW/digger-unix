@@ -6,7 +6,7 @@ SRCS=		main.c digger.c drawing.c sprite.c scores.c record.c sound.c \
 
 CFLAGS+=	-DFREEBSD
 
-LDADD+=		-lz
+LDADD+=		-lz -lm
 
 SDL_CONFIG?=	sdl-config
 
